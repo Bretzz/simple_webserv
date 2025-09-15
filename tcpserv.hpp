@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   tcpserv.hpp                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: totommi <totommi@student.42.fr>            +#+  +:+       +#+        */
+/*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/10 14:20:03 by totommi           #+#    #+#             */
-/*   Updated: 2025/09/12 10:58:58 by totommi          ###   ########.fr       */
+/*   Updated: 2025/09/15 14:54:27 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -27,7 +27,7 @@ a socket at the port passed */
 class tcpserv
 {
 	public:
-		typedef void	(*front_desk_agent)(const std::pair<int, std::string>&);
+		typedef int	(*front_desk_agent)(const std::pair<int, std::string>&);
 		typedef int		(*build)(void *);
 
 	private:

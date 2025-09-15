@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   tcpserv.cpp                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: totommi <totommi@student.42.fr>            +#+  +:+       +#+        */
+/*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/10 14:29:28 by totommi           #+#    #+#             */
-/*   Updated: 2025/09/12 12:01:33 by totommi          ###   ########.fr       */
+/*   Updated: 2025/09/15 14:57:23 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,11 +15,28 @@
 #include <unistd.h> 	//close
 #include <fcntl.h>		//well2...
 #include <arpa/inet.h>	//accept
+
 #include <errno.h>		//EGAIN, errno
+#include <cstring>		//strerror
 
 #include <stdexcept> 	//runtime_error
 
 #include <iostream>
+
+/* -------------------------------------- */
+
+static void	tcpserv_memset(void *ptr, int c, size_t n)
+{
+	unsigned char *c_ptr = (unsigned char *)ptr;
+
+	for (size_t i = 0; i < n; ++i)
+	{
+		*c_ptr = c;
+		++c_ptr;
+	}
+}
+
+/* -------------------------------------- */
 
 /* ========================================================================== */
 /* ============================ CONSTR & DESTR ============================== */
@@ -35,8 +52,8 @@ tcpserv::tcpserv(int __port, front_desk_agent __f): _port(__port), _f(__f), _b(N
 
 tcpserv::~tcpserv()
 {
-	for (size_t i = 1; i < _fds.size(); ++i)
-		close(_fds[1].fd);
+	for (size_t i = 0; i < _fds.size(); ++i)
+		close(_fds[i].fd);
 }
 
 /* ========================================================================== */
@@ -66,7 +83,7 @@ void tcpserv::kill(int __idx, const std::string& req)
 	if (__idx >= static_cast<ssize_t>(_fds.size())) {throw std::out_of_range("tcpserv::kill: index out of range");}
 
 	/* kill signal to the reception module */
-	(*_f)(std::pair<int, std::string>(_fds[__idx].fd, req));
+	if (!req.empty()) {(*_f)(std::pair<int, std::string>(_fds[__idx].fd, req));}
 
 	/* closing the socket */
 	close(_fds[__idx].fd);
@@ -86,7 +103,7 @@ int	tcpserv::accept_and_store()
 	socklen_t			len = sizeof(addr);
 	
 	/* ACCEPTS THE CONNECTION */
-	std::memset(&addr, 0, sizeof(addr));
+	tcpserv_memset(&addr, 0, sizeof(addr));
 	if ((fd = accept(_fds[1].fd, (struct sockaddr*)(&addr), &len)) < 0)
 	{
 		std::cerr << "Accept failure" << std::strerror(errno) << std::endl;
@@ -97,6 +114,7 @@ int	tcpserv::accept_and_store()
 	if (_fds.size() >= SERVER_CAPACITY)
 	{
 		std::cout << "Warn: Cannot accept: Server is full" << std::endl;
+		send(fd, "Server is full", 15, 0);
 		close(fd); return 0;
 	}
 
@@ -120,7 +138,7 @@ int	tcpserv::receive_all_data(int sockfd, std::string& data)
 	{
 		/* keeps reading the non-blocking socket
 		until error or end-of-transmission */
-		std::memset(buff, 0, sizeof(buff));
+		tcpserv_memset(buff, 0, sizeof(buff));
 		ret = recv(sockfd, buff, sizeof(buff) - 1, 0);
 		if (ret > 0) {data += buff;}
 	}
@@ -162,14 +180,15 @@ int	tcpserv::setup(int __port)
 
 	/* ADDR CREATION */
 	struct sockaddr_in	serv_addr;
-	std::memset(&serv_addr, 0, sizeof(serv_addr));
+	tcpserv_memset(&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;							// <- Ipv4?
 	serv_addr.sin_addr.s_addr = INADDR_ANY/* inet_addr(local_ip.c_str()) */;
 	serv_addr.sin_port = htons(__port);						// on this port
 
 	/* SETUP SOCKET OPTIONS */
-	setsockopt(listfd, SOL_SOCKET, SO_REUSEADDR, NULL, 0);	// reusable port
-	fcntl(listfd, F_SETFL, O_NONBLOCK);						// non-blocking recv/send
+	const int enable = 1;
+	setsockopt(listfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));	// reusable port
+	fcntl(listfd, F_SETFL, O_NONBLOCK);										// non-blocking recv/send
 
 	/* BIND */
 	if (bind(listfd, (struct sockaddr*)(&serv_addr), sizeof(serv_addr)) < 0)
@@ -228,7 +247,12 @@ void	tcpserv::launch(front_desk_agent __f, build __b)
 					this->kill(i, data); --i; continue;
 				}
 				/* sending data to the reception module */
-				else {(*_f)(std::pair<int, std::string>(_fds[i].fd, data));}
+				else
+				{
+					/* the QUIT buffer was composed inside */
+					if ((*_f)(std::pair<int, std::string>(_fds[i].fd, data)) == 1)
+						{this->kill(i, ""); --i; continue;}
+				}
 			}
 		}
 	}
