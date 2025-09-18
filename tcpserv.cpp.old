@@ -6,7 +6,7 @@
 /*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/10 14:29:28 by totommi           #+#    #+#             */
-/*   Updated: 2025/09/18 13:47:24 by topiana-         ###   ########.fr       */
+/*   Updated: 2025/09/15 14:57:23 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -21,11 +21,7 @@
 
 #include <stdexcept> 	//runtime_error
 
-#include <signal.h>		// signal
-
 #include <iostream>
-
-int	g_last_signal = 0;
 
 /* -------------------------------------- */
 
@@ -64,20 +60,6 @@ tcpserv::~tcpserv()
 /* =============================== METHODS ================================== */
 /* ========================================================================== */
 
-static void	setsig(int signal) {g_last_signal = signal;}
-
-void	tcpserv::shutdown(void)
-{
-	if (g_last_signal == SIGINT)
-	{
-		std::cout << "tcpserv shutting down ..." << std::endl;
-
-		/* Close all sockets */
-		for (size_t i = 0; i < _fds.size(); ++i)
-			close(_fds[i].fd);
-	}
-}
-
 void	tcpserv::add(int __fd, int __events)
 {
 	/* negative check */
@@ -91,9 +73,6 @@ void	tcpserv::add(int __fd, int __events)
 	chicken.events = __events;
 	chicken.revents = 0;
 	_fds.push_back(chicken);	// malloc failure?
-	_requests.push_back("");
-	_responses.push_back("");
-	std::cout << "new fd " << __fd << " added" << std::endl;
 }
 
 /* we are assuming the socket is already been closed? NHA */
@@ -104,28 +83,20 @@ void tcpserv::kill(int __idx, const std::string& req)
 	if (__idx >= static_cast<ssize_t>(_fds.size())) {throw std::out_of_range("tcpserv::kill: index out of range");}
 
 	/* kill signal to the reception module */
-	if (!req.empty()) {(*_f)(std::pair<int, std::string>(_fds[__idx].fd, req), _responses[__idx]);}
+	if (!req.empty()) {(*_f)(std::pair<int, std::string>(_fds[__idx].fd, req));}
 
 	/* closing the socket */
 	close(_fds[__idx].fd);
 
-	/* remove from fds vector */
+	/* remove from vector */
 	if (__idx == static_cast<ssize_t>(_fds.size() - 1)) {_fds.pop_back();}
 	else {_fds.erase(_fds.begin() + __idx);}
-
-	/* remove from requests vector */
-	if (__idx == static_cast<ssize_t>(_requests.size() - 1)) {_requests.pop_back();}
-	else {_requests.erase(_requests.begin() + __idx);}
-
-	/* remove from responses vector */
-	if (__idx == static_cast<ssize_t>(_responses.size() - 1)) {_responses.pop_back();}
-	else {_responses.erase(_responses.begin() + __idx);}
 }
 
 /* @param fds vector of pollfd structs with fds[1].fd being the listening socket.
 accept()s the TPC connection, sets the socket to O_NONBLOCK and stores the
 pollfd struct in the vector passed. */
-int	tcpserv::accept_and_store(void)
+int	tcpserv::accept_and_store()
 {	
 	struct sockaddr_in 	addr;
 	int					fd = 0;
@@ -133,9 +104,9 @@ int	tcpserv::accept_and_store(void)
 	
 	/* ACCEPTS THE CONNECTION */
 	tcpserv_memset(&addr, 0, sizeof(addr));
-	if ((fd = accept(_fds[0].fd, (struct sockaddr*)(&addr), &len)) < 0)
+	if ((fd = accept(_fds[1].fd, (struct sockaddr*)(&addr), &len)) < 0)
 	{
-		std::cerr << "Accept failure: " << std::strerror(errno) << std::endl;
+		std::cerr << "Accept failure" << std::strerror(errno) << std::endl;
 		return (errno != ECONNABORTED) ? 1: 0;	// cases in which the server can stil run
 	}
 	
@@ -155,51 +126,36 @@ int	tcpserv::accept_and_store(void)
 	return 0;
 }
 
-/* after the pollfd struct ad "idx" has POLLIN in .revents,
-a single recv() call is performed and the output stored in the _buff[idx] string */
-int	tcpserv::receive_and_store(int __idx)
+/* expected a non blocking socket, proveeds to recv() call
+until no more data is found */
+int	tcpserv::receive_all_data(int sockfd, std::string& data)
 {
 	char		buff[1024];
 	int			ret;
 
-	std::cout << "recieveing index " << __idx << std::endl;
-	tcpserv_memset(buff, 0, sizeof(buff));
-	ret = recv(_fds[__idx].fd, buff, sizeof(buff) - 1, 0);
-	if (ret > 0) {_requests[__idx] += buff;}
+	data.clear();
+	do
+	{
+		/* keeps reading the non-blocking socket
+		until error or end-of-transmission */
+		tcpserv_memset(buff, 0, sizeof(buff));
+		ret = recv(sockfd, buff, sizeof(buff) - 1, 0);
+		if (ret > 0) {data += buff;}
+	}
+	while (ret > 0);
 	
 	/* ERROR HANDLING */
-	if (ret < 0)	//EAGAIN esce se nn ci sono piu' cose da lgggere
+	if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK)	//EAGAIN esce se nn ci sono piu' cose da lgggere
 	{
 		std::cerr << "Recv failrue: " << std::strerror(errno) << std::endl;
 		return -1;
 	}
 	if (ret == 0)	// client ha chiuso il write end della pipe
 	{
-		std::cout << "Client forcefully disconnected" << std::endl;
+		// std::cout << "Client forcefully disconnected" << std::endl;
 		return -1;
 	}
 
-	return 0;
-}
-
-/* if a DELIMITER is found: crops the request found at _request[idx],
-then passes the cropped request to front_desk_agent and stores the remaining
-part. */
-int	tcpserv::crop_and_process(int __idx)
-{
-	const size_t term = _requests[__idx].find(DELIMITER);
-
-	std::cout << "processing '" << _requests[__idx] << "'" << std::endl;
-	if (term  != std::string::npos)
-	{
-		/* in case of trailing data */
-		std::string single = _requests[__idx].substr(0, term + 2);
-		_requests[__idx].erase(0, term + 2);
-		
-		/* sendig buffer to process, if front_desk_agent returns 1, kill the bitch */
-		if ((*_f)(std::pair<int, std::string>(_fds[__idx].fd, single), _responses[__idx]) == 1)
-			return -1;
-	}
 	return 0;
 }
 
@@ -252,7 +208,7 @@ int	tcpserv::setup(int __port)
 
 	/* STORE VARIABLES */
 	_port = __port;
-	// this->add(STDIN_FILENO);	//just for ctrl+D
+	this->add(STDIN_FILENO);	//just for ctrl+D
 	this->add(listfd);
 	return 0;
 }
@@ -269,28 +225,34 @@ void	tcpserv::launch(front_desk_agent __f, build __b)
 	if (__b != NULL) {_b = __b;}
 	if (_b != NULL && _b(NULL)) {std::cerr << "Build failure" << std::endl; return;}
 
-	/* catch SIGINT to quit gracefully */
-	signal(SIGINT, &setsig);
-
 	std::cout << "launching tcpserv on port " << _port << std::endl;
 	for (;;) //hehe
 	{
 		int ret = poll(&_fds[0], _fds.size(), 10);
-		if (g_last_signal == SIGINT) {this->shutdown(); break;}
 		if (ret == 0) {continue;}
 		if (ret == -1) {std::cout << "Poll failre: " << std::strerror(errno) << std::endl; break;}
-		if (_fds[0].revents & POLLIN) {if (accept_and_store()) break;}
-		for (size_t idx = 1; idx < _fds.size(); ++idx)
+		if (_fds[0].revents & POLLIN) {char c; if (read(STDIN_FILENO, &c, 1) <= 0) break;}
+		if (_fds[1].revents & POLLIN) {if (accept_and_store()) break;}
+		for (size_t i = 2; i < _fds.size(); ++i)
 		{
-			/* Error cases */
-			if (_fds[idx].revents & (POLLHUP | POLLRDHUP | POLLERR)) {this->kill(idx); --idx; continue;}
-			else if (_fds[idx].revents & POLLIN)
+			std::string data;	/* recv buffer */
+			if (_fds[i].revents & (POLLHUP | POLLERR)) {this->kill(i); --i; continue;}
+			else if (_fds[i].revents & POLLIN)
 			{
-				/* single recv() call stored in _requests[idx] */
-				if (receive_and_store(idx) < 0) {this->kill(idx); --idx; continue;}
-				/* crops the request and sends it to the reception module */
-				if (crop_and_process(idx) < 0) {this->kill(idx, ""); --idx; continue;}
-				std::cout << "response is '" << _responses[idx] << "'" << std::endl;
+				if (receive_all_data(_fds[i].fd, data) < 0) {this->kill(i); --i; continue;}
+				else if (data.find(GRACE_LEAVE) == 0)
+				{
+					/* client graceful disconnect */
+					std::cout << "Client " << _fds[i].fd << " disconnected" << std::endl;
+					this->kill(i, data); --i; continue;
+				}
+				/* sending data to the reception module */
+				else
+				{
+					/* the QUIT buffer was composed inside */
+					if ((*_f)(std::pair<int, std::string>(_fds[i].fd, data)) == 1)
+						{this->kill(i, ""); --i; continue;}
+				}
 			}
 		}
 	}
