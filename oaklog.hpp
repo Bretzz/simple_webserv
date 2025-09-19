@@ -6,7 +6,7 @@
 /*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/19 11:49:48 by topiana-          #+#    #+#             */
-/*   Updated: 2025/09/19 17:49:18 by topiana-         ###   ########.fr       */
+/*   Updated: 2025/09/19 19:50:40 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -43,6 +43,10 @@ class oaklog
 	/* Enable/Disable console logging */
 	void	console(void);
 
+	/* Set the level of logging
+	@throws InvalidLogLevelExcept: level < 0 or bigger than _max_level */
+	void	setlvl(int);
+
 	/* Log literal strings, string + int, string + string */
 	void	chop(int, const std::string&, const char*, int, const char*);
 	void	chop(int, const std::string&, int, const char*, int, const char*);
@@ -52,6 +56,11 @@ class oaklog
 	class CantOpenLogfileExcept : public std::exception {
 	public:
 		CantOpenLogfileExcept();
+		const char*	what() const throw();
+	};
+	class InvalidLogLevelExcept : public std::exception {
+	public:
+		InvalidLogLevelExcept();
 		const char*	what() const throw();
 	};
 };
