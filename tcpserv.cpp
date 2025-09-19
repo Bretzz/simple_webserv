@@ -6,7 +6,7 @@
 /*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/10 14:29:28 by totommi           #+#    #+#             */
-/*   Updated: 2025/09/18 13:47:24 by topiana-         ###   ########.fr       */
+/*   Updated: 2025/09/19 17:50:33 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -46,9 +46,9 @@ static void	tcpserv_memset(void *ptr, int c, size_t n)
 /* ============================ CONSTR & DESTR ============================== */
 /* ========================================================================== */
 
-tcpserv::tcpserv(): _port(-1), _f(NULL), _b(NULL) {}
+tcpserv::tcpserv(): _port(-1), _f(NULL), _b(NULL), _log() {}
 
-tcpserv::tcpserv(int __port, front_desk_agent __f): _port(__port), _f(__f), _b(NULL)
+tcpserv::tcpserv(int __port, front_desk_agent __f): _port(__port), _f(__f), _b(NULL), _log()
 {
 	if (this->setup(_port) == 0)
 		this->launch(_f);
@@ -70,7 +70,7 @@ void	tcpserv::shutdown(void)
 {
 	if (g_last_signal == SIGINT)
 	{
-		std::cout << "tcpserv shutting down ..." << std::endl;
+		_log.chop(0, "tcpserv shutting down ...", FLF);
 
 		/* Close all sockets */
 		for (size_t i = 0; i < _fds.size(); ++i)
@@ -93,7 +93,6 @@ void	tcpserv::add(int __fd, int __events)
 	_fds.push_back(chicken);	// malloc failure?
 	_requests.push_back("");
 	_responses.push_back("");
-	std::cout << "new fd " << __fd << " added" << std::endl;
 }
 
 /* we are assuming the socket is already been closed? NHA */
@@ -135,14 +134,14 @@ int	tcpserv::accept_and_store(void)
 	tcpserv_memset(&addr, 0, sizeof(addr));
 	if ((fd = accept(_fds[0].fd, (struct sockaddr*)(&addr), &len)) < 0)
 	{
-		std::cerr << "Accept failure: " << std::strerror(errno) << std::endl;
+		_log.chop(2, "Accept failure: ", std::strerror(errno), FLF);
 		return (errno != ECONNABORTED) ? 1: 0;	// cases in which the server can stil run
 	}
 	
 	/* check for poll() limits: RLIMIT_NOFILE */
 	if (_fds.size() >= SERVER_CAPACITY)
 	{
-		std::cout << "Warn: Cannot accept: Server is full" << std::endl;
+		_log.chop(1, "Cannot accept: Server is full", FLF);
 		send(fd, "Server is full", 15, 0);
 		close(fd); return 0;
 	}
@@ -162,20 +161,24 @@ int	tcpserv::receive_and_store(int __idx)
 	char		buff[1024];
 	int			ret;
 
-	std::cout << "recieveing index " << __idx << std::endl;
+	// std::cout << "recieveing index " << __idx << std::endl;
+
 	tcpserv_memset(buff, 0, sizeof(buff));
 	ret = recv(_fds[__idx].fd, buff, sizeof(buff) - 1, 0);
 	if (ret > 0) {_requests[__idx] += buff;}
 	
+	// std::cout << "received buff '" << buff << "'" << std::endl;
+	// std::cout << "received _req '" << _requests[__idx] << "'" << std::endl;
+	
 	/* ERROR HANDLING */
-	if (ret < 0)	//EAGAIN esce se nn ci sono piu' cose da lgggere
+	if (ret < 0)
 	{
-		std::cerr << "Recv failrue: " << std::strerror(errno) << std::endl;
+		_log.chop(2, "Recv failure: ", std::strerror(errno), FLF);
 		return -1;
 	}
 	if (ret == 0)	// client ha chiuso il write end della pipe
 	{
-		std::cout << "Client forcefully disconnected" << std::endl;
+		_log.chop(1, "Client forcefully disconnected", FLF);
 		return -1;
 	}
 
@@ -189,12 +192,13 @@ int	tcpserv::crop_and_process(int __idx)
 {
 	const size_t term = _requests[__idx].find(DELIMITER);
 
-	std::cout << "processing '" << _requests[__idx] << "'" << std::endl;
 	if (term  != std::string::npos)
 	{
 		/* in case of trailing data */
-		std::string single = _requests[__idx].substr(0, term + 2);
-		_requests[__idx].erase(0, term + 2);
+		std::string single = _requests[__idx].substr(0, term + sizeof(DELIMITER) - 1);
+		_requests[__idx].erase(0, term + sizeof(DELIMITER) - 1);
+
+		_log.chop(0, "request: ", single, FLF);
 		
 		/* sendig buffer to process, if front_desk_agent returns 1, kill the bitch */
 		if ((*_f)(std::pair<int, std::string>(_fds[__idx].fd, single), _responses[__idx]) == 1)
@@ -213,7 +217,7 @@ int	tcpserv::setup(int __port)
 	int	listfd = 0;
 	if ((listfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 	{
-		std::cerr << "Socket failure: " << std::strerror(errno) << std::endl;
+		_log.chop(2, "Socket failure: ", std::strerror(errno), FLF);
 		return -1;
 	}
 
@@ -232,12 +236,12 @@ int	tcpserv::setup(int __port)
 	/* SETUP SOCKET OPTIONS */
 	const int enable = 1;
 	setsockopt(listfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));	// reusable port
-	fcntl(listfd, F_SETFL, O_NONBLOCK);										// non-blocking recv/send
+	fcntl(listfd, F_SETFL, O_NONBLOCK);									// non-blocking recv/send
 
 	/* BIND */
 	if (bind(listfd, (struct sockaddr*)(&serv_addr), sizeof(serv_addr)) < 0)
 	{
-		std::cerr << "Bind failure: " << std::strerror(errno) << std::endl;
+		_log.chop(2, "Bind failure: ", std::strerror(errno), FLF);
 		close(listfd);
 		return -1;
 	}
@@ -245,14 +249,13 @@ int	tcpserv::setup(int __port)
 	/* LISTEN */
 	if (listen(listfd, 5) < 0)
 	{
-		std::cerr << "Listen failure: " << std::strerror(errno) << std::endl;
+		_log.chop(2, "Listen failure: ", std::strerror(errno), FLF);
 		close(listfd);
 		return -1;
 	}
 
 	/* STORE VARIABLES */
 	_port = __port;
-	// this->add(STDIN_FILENO);	//just for ctrl+D
 	this->add(listfd);
 	return 0;
 }
@@ -267,18 +270,20 @@ void	tcpserv::launch(front_desk_agent __f, build __b)
 
 	/* build function */
 	if (__b != NULL) {_b = __b;}
-	if (_b != NULL && _b(NULL)) {std::cerr << "Build failure" << std::endl; return;}
+	if (_b != NULL && _b(NULL)) {_log.chop(oaklog::lvl::Error, "Build failure", FLF); return;}
 
 	/* catch SIGINT to quit gracefully */
 	signal(SIGINT, &setsig);
 
-	std::cout << "launching tcpserv on port " << _port << std::endl;
+	_log.chop(oaklog::lvl::Info, "launching tcpserv on port ", _port, FLF);
+	_log.console();
+
 	for (;;) //hehe
 	{
 		int ret = poll(&_fds[0], _fds.size(), 10);
 		if (g_last_signal == SIGINT) {this->shutdown(); break;}
-		if (ret == 0) {continue;}
-		if (ret == -1) {std::cout << "Poll failre: " << std::strerror(errno) << std::endl; break;}
+		if (ret == 0) {/* health check routine */continue;}
+		if (ret == -1) {_log.chop(oaklog::lvl::Error, "Poll failure: ", std::strerror(errno), FLF); break;}
 		if (_fds[0].revents & POLLIN) {if (accept_and_store()) break;}
 		for (size_t idx = 1; idx < _fds.size(); ++idx)
 		{
@@ -290,7 +295,16 @@ void	tcpserv::launch(front_desk_agent __f, build __b)
 				if (receive_and_store(idx) < 0) {this->kill(idx); --idx; continue;}
 				/* crops the request and sends it to the reception module */
 				if (crop_and_process(idx) < 0) {this->kill(idx, ""); --idx; continue;}
-				std::cout << "response is '" << _responses[idx] << "'" << std::endl;
+			}
+			else if (_fds[idx].revents & POLLOUT)
+			{
+				/* send the response */
+				if (_responses[idx].empty()) {continue;}
+				else if (send(_fds[idx].fd, _responses[idx].c_str(), _responses[idx].length(), 0) < 0) {_log.chop(oaklog::lvl::Error, "Send failure: ", std::strerror(errno), FLF);}
+				_log.chop(oaklog::lvl::Info, "resonpose: ", _responses[idx], FLF);
+				/* clear the responses */
+				tcpserv_memset(&_fds[idx].revents, 0, sizeof(short));
+				_responses[idx].clear();
 			}
 		}
 	}

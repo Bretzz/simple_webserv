@@ -6,7 +6,7 @@
 /*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/10 14:20:03 by totommi           #+#    #+#             */
-/*   Updated: 2025/09/18 13:33:52 by topiana-         ###   ########.fr       */
+/*   Updated: 2025/09/19 19:17:51 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -18,8 +18,10 @@
 // # include <pair>
 # include <poll.h>
 
+# include "oaklog.hpp"
+
 # define SERVER_CAPACITY	64		/* Max number oof users */
-# define DELIMITER			"\r\n"
+# define DELIMITER			"\r\n\r\n"
 # define GRACE_LEAVE 		"QUIT"	/* string the user sends befoe leaving */
 
 /* at construction this object will
@@ -38,6 +40,7 @@ class tcpserv
 		int							_port;
 		front_desk_agent			_f;			/* function that will receive all tcp reqests */
 		build						_b;			/* function to be called when the tcp server just booted */
+		oaklog						_log;		/* the best logger that ever lived */
 
 	public:
 		tcpserv();
