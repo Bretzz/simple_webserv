@@ -1,5 +1,7 @@
 This Program is built to recieve TCP/IP connection and pass the outcome to a function like so:
-#	void func(std::pair<int, std::string>)
+#	void func(std::pair<int, std::string>, std::string&)
 Every socket operation will be non-blocking.
 The maximum number of simultaneous connections should be set accordingly to the RLIMIT_NOFILE limit
 Other incominng coonnections will be accept()ed and closed.
+
+https://www.rfc-editor.org/rfc/rfc9110.html
