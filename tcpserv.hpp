@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   tcpserv.hpp                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: totommi <totommi@student.42.fr>            +#+  +:+       +#+        */
+/*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/10 14:20:03 by totommi           #+#    #+#             */
-/*   Updated: 2025/09/22 04:01:02 by totommi          ###   ########.fr       */
+/*   Updated: 2025/09/22 16:11:16 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,6 +15,7 @@
 
 # include <vector>
 # include <deque>
+# include <list>
 # include <string>
 // # include <pair>
 # include <poll.h>
@@ -27,6 +28,22 @@
 # define TCPSERV_EOT		"\r\n"
 # define GRACE_LEAVE 		"QUIT"	/* string the user sends befoe leaving */
 
+/*  */
+enum e_type
+{
+	USER,
+	SERVICE
+};
+
+struct http_req // httpReq // http_req // reqhttp // 
+{
+	std::string head;		/* head of the request, works also as a buffer for non HTTP requests */
+	std::string	body;		/* last request sent, with trailing data if present */
+	size_t		bodylen;	/* expeted body length */
+	std::string	response;	/* response processed */
+	enum e_type	type;		/* service or user */
+};
+
 /* at construction this object will
 bind(), setsock(), fcntl(), listen()
 a socket at the port passed */
@@ -38,32 +55,19 @@ class tcpserv
 
 	private:
 		std::vector<struct pollfd>	_fds;		/* pollfd struct woth servfd at idx 0 */
-		std::deque<std::string>	_requests;		/* buffer wrote until DELIMITER */
-		std::deque<std::string>	_responses;		/* resposnes processed by front_desk_agent */
+		std::deque<struct http_req>	_reqs;		/* all to know about that request */
 		int							_port;
 		front_desk_agent			_f;			/* function that will receive all tcp reqests */
 		build						_b;			/* function to be called when the tcp server just booted */
 		oaklog						_log;		/* the best logger that ever lived */
-
-	public:
-		tcpserv();
-		tcpserv(int, front_desk_agent);
-		~tcpserv();
-
-		/* MAIN METHOFD */
-		/* setup a non-blocking reusable socket to listen() on the port passed */
-		int		setup(int);
-		/* The poll() wrapper that accept()s new connection and forward the
-		data received to the front_desk_agent */
-		void	launch(front_desk_agent, build = NULL);
 
 		/* @param __idx the index of the client to kill in the _fds vector
 		@throws out_of_range exeption if __idx is negaive or >= _fds's size */
 		void	kill(int __idx, const std::string& req = "QUIT\r\n");
 		/* @param __fd socket to be added to _fds vector
 		@throws runtime_error if __fd is already present or a negative number */
-		void	add(int __fd, int __events = POLLIN | POLLOUT /* | POLLRDHUP */);
-
+		void	add(int __fd, enum e_type __type = USER, int __events = POLLIN | POLLOUT /* | POLLRDHUP */);
+	
 		/* @param fds vector of pollfd structs with fds[1].fd being the listening socket.
 		accept()s the TPC connection, sets the socket to O_NONBLOCK and stores the
 		pollfd struct in the vector passed.
@@ -88,6 +92,19 @@ class tcpserv
 		0 if the processing of the response went well*/
 		int		crop_and_process(int);
 
+	public:
+		tcpserv();
+		tcpserv(int, front_desk_agent);
+		~tcpserv();
+
+		/* MAIN METHOFD */
+		/* setup a non-blocking reusable socket to listen() on the port passed */
+		int		setup(int);
+		/* The poll() wrapper that accept()s new connection and forward the
+		data received to the front_desk_agent */
+		void	launch(front_desk_agent, build = NULL);
+
+
 		void	shutdown(void);
 		// runtime change of port/front_desk_agent
 		// void	setReader(reader);		#todo
@@ -96,7 +113,7 @@ class tcpserv
 		/* @param __req request to forward to a local service
 		@param __port port the service is listening on
 		@returns -1 failure on socket initialization, sockfd if the request was forwarded*/
-		int	local_forward(int, const std::string&);
+		int	forward(const std::string&, const std::string&);
 };
 
 #endif

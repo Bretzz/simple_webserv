@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   tcpserv.cpp                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: totommi <totommi@student.42.fr>            +#+  +:+       +#+        */
+/*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/10 14:29:28 by totommi           #+#    #+#             */
-/*   Updated: 2025/09/22 04:14:30 by totommi          ###   ########.fr       */
+/*   Updated: 2025/09/22 18:26:27 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -106,7 +106,7 @@ void	tcpserv::shutdown(void)
 	}
 }
 
-void	tcpserv::add(int __fd, int __events)
+void	tcpserv::add(int __fd, enum e_type __type, int __events)
 {
 	/* negative check */
 	if (__fd < 0) {throw std::runtime_error("tcpserv::add: negaitve fd");}
@@ -122,8 +122,11 @@ void	tcpserv::add(int __fd, int __events)
 	chicken.events = __events;
 	chicken.revents = 0;
 	_fds.push_back(chicken);	// malloc failure?
-	_requests.push_back("");
-	_responses.push_back("");
+
+	struct http_req	jockey;
+	jockey.bodylen = 0;
+	jockey.type = __type;
+	_reqs.push_back(jockey);
 }
 
 /* we are assuming the socket is already been closed? NHA */
@@ -137,13 +140,13 @@ void tcpserv::kill(int __idx, const std::string& req)
 	_log.chop(oaklog::lvl::Info, "killing: ", _fds[__idx].fd, WHERE);
 
 	/* kill signal to the reception module */
-	if (!req.empty()) {(*_f)(std::pair<int, std::string>(_fds[__idx].fd, req), _responses[__idx]);}
+	if (!req.empty()) {(*_f)(std::pair<int, std::string>(_fds[__idx].fd, req), _reqs[__idx].response);}
 
 	/* send reception module response */
-	if (!_responses[__idx].empty())
+	if (!_reqs[__idx].response.empty())
 	{
-		_log.chop(oaklog::lvl::Info, "kill response: ", _responses[__idx], WHERE);
-		if (send(_fds[__idx].fd, _responses[__idx].c_str(), _responses[__idx].length(), 0) < 0) {_log.chop(oaklog::lvl::Error, "Send failure: ", std::strerror(errno), WHERE);}
+		_log.chop(oaklog::lvl::Info, "kill response: ", _reqs[__idx].response, WHERE);
+		if (send(_fds[__idx].fd, _reqs[__idx].response.c_str(), _reqs[__idx].response.length(), 0) < 0) {_log.chop(oaklog::lvl::Error, "Send failure: ", std::strerror(errno), WHERE);}
 	}
 
 	/* closing the socket */
@@ -153,13 +156,9 @@ void tcpserv::kill(int __idx, const std::string& req)
 	if (__idx == static_cast<ssize_t>(_fds.size() - 1)) {_fds.pop_back();}
 	else {_fds.erase(_fds.begin() + __idx);}
 
-	/* remove from requests vector */
-	if (__idx == static_cast<ssize_t>(_requests.size() - 1)) {_requests.pop_back();}
-	else {_requests.erase(_requests.begin() + __idx);}
-
-	/* remove from responses vector */
-	if (__idx == static_cast<ssize_t>(_responses.size() - 1)) {_responses.pop_back();}
-	else {_responses.erase(_responses.begin() + __idx);}
+	/* remove from requests deque */
+	if (__idx == static_cast<ssize_t>(_reqs.size() - 1)) {_reqs.pop_back();}
+	else {_reqs.erase(_reqs.begin() + __idx);}
 }
 
 /* @param fds vector of pollfd structs with fds[1].fd being the listening socket.
@@ -207,7 +206,11 @@ int	tcpserv::receive_and_store(int __idx, int __size)
 	{
 		tcpserv_memset(buff, 0, sizeof(buff));
 		ret = recv(_fds[__idx].fd, buff, sizeof(buff) - 1, 0);
-		if (ret > 0) {_requests[__idx].append(buff, ret);}
+		if (ret > 0)
+		{
+			if (_reqs[__idx].bodylen == 0) {_reqs[__idx].head.append(buff, ret);}
+			else {_reqs[__idx].body.append(buff, ret);}
+		}
 	}
 	
 	// std::cout << "received buff '" << buff << "'" << std::endl;
@@ -233,47 +236,95 @@ then passes the cropped request to front_desk_agent and stores the remaining
 part. */
 int	tcpserv::crop_and_process(int __idx)
 {
-	const size_t					term = _requests[__idx].rfind(TCPSERV_EOT, -1, (sizeof(TCPSERV_EOT) - 1));
-	static std::map<int, size_t>	bodylen;		/* next recv of that size */
+	const size_t					term = _reqs[__idx].head.rfind(TCPSERV_EOT, -1, (sizeof(TCPSERV_EOT) - 1));
+	// static std::map<int, size_t>	bodylen;		/* next recv of that size */
 
-	if (bodylen.count(__idx) == 0 && term != std::string::npos)
+	if (_reqs[__idx].bodylen == 0 && term != std::string::npos)
 	{
 		/* in case of trailing data */
-		std::string crop = _requests[__idx].substr(0, term + (sizeof(TCPSERV_EOT) - 1));
-		_requests[__idx].erase(0, term + (sizeof(TCPSERV_EOT) - 1));
+		std::string crop = _reqs[__idx].head.substr(0, term + (sizeof(TCPSERV_EOT) - 1));
+		_reqs[__idx].head.erase(0, term + (sizeof(TCPSERV_EOT) - 1));
 		
 		_log.chop(0, "request: ", crop, WHERE);
 
 		/* sendig buffer to process, if front_desk_agent returns 1, kill the bitch */
 		int ret = 0;
-		if ((ret = (*_f)(std::pair<int, std::string>(_fds[__idx].fd, crop), _responses[__idx])) < 0)
+		if ((ret = (*_f)(std::pair<int, std::string>(_fds[__idx].fd, crop), _reqs[__idx].response)) < 0)
 			return -1;
-		if (ret > 0) {bodylen[__idx] = ret;}
+		_reqs[__idx].bodylen = ret;				// set expected body length
+		_reqs[__idx].body = _reqs[__idx].head;	// copy leftover data (correct ???)
+		_reqs[__idx].head.clear();				// clear head
 	}
-	else if (bodylen.count(__idx) > 0 && _requests[__idx].length() == bodylen[__idx])
+	else if (_reqs[__idx].bodylen > 0 && _reqs[__idx].body.length() == _reqs[__idx].bodylen)
 	{
-		_log.chop(0, "raw request: ", _requests[__idx], WHERE);
+		_log.chop(0, "raw request: ", _reqs[__idx].body, WHERE);
 
-		bodylen.erase(__idx);
+		_reqs[__idx].bodylen = 0;
 
 		/* sendig buffer to process, if front_desk_agent returns 1, kill the bitch */
-		if ((*_f)(std::pair<int, std::string>(_fds[__idx].fd, _requests[__idx]), _responses[__idx]) < 0)
+		if ((*_f)(std::pair<int, std::string>(_fds[__idx].fd, _reqs[__idx].body), _reqs[__idx].response) < 0)
 			return -1;
 	}
 	return 0;
 }
 
+/* 0 error, 1 ok */
+static int	parse_service(const std::string& __service)
+{
+	size_t		column = __service.find(':');
+
+	if (column == std::string::npos) {return 0;}
+
+	int			port = std::atoi(__service.substr(column + 1).c_str());
+	std::string	hostname = __service.substr(0, column);
+
+	if (port < 0) {return 0;}
+	if (hostname.find('.') == std::string::npos && hostname != "localhost") {return 0;}
+	if (hostname.find_first_not_of(".0123456789") != std::string::npos) {return 0;}
+
+	int	digit = 0;
+	int	dot = 0;
+	for (size_t i = 0; i < hostname.length(); ++i)
+	{
+		if (std::isdigit(hostname[i])) {++digit;}
+		if (hostname[i] == '.')
+		{
+			if (digit == 0) {return 0;}
+			else {++dot; digit = 0;}
+		}
+		if (digit > 3 || dot > 3) {return 0;}
+	}
+	return 1;
+}
+
 /* @param __req request to forward to a local service
 @param __port port the service is listening on
 @returns -1 failure on socket initialization, sockfd if the request was forwarded*/
-int	tcpserv::local_forward(int __port, const std::string& __req)
+int	tcpserv::forward(const std::string& __service, const std::string& __req)
 {
+	/* __service (example): localhost:5000, 10.18.207.213:3306 */
+	if (parse_service(__service) == 0)
+	{
+		_log.chop(oaklog::lvl::Warn, "Invalid service address: ", __service, WHERE);
+		return -1;
+	}
+
+	int			port = std::atoi(__service.substr(__service.find(':') + 1).c_str());
+	std::string	hostname = __service.substr(0, __service.find(':'));
+	if (hostname == "localhost") {hostname = "127.0.0.1";}
+
+	/* logging ... */
+	_log.chop(oaklog::lvl::Info, "Forwarding to: ", __service, WHERE);
+
+
 	/* ADDR CREATION */
 	struct sockaddr_in	module_addr;
 	memset(&module_addr, 0, sizeof(module_addr));
-	module_addr.sin_family = AF_INET;						// IPv4
-	module_addr.sin_port = htons(__port);					// Port number
-	module_addr.sin_addr.s_addr = inet_addr("127.0.0.1");	// Loopback IP
+	module_addr.sin_family = AF_INET;							// IPv4
+	module_addr.sin_port = htons(port);						// Port number
+	// module_addr.sin_addr.s_addr = inet_addr("127.0.0.1");	// Loopback IP
+	// module_addr.sin_addr.s_addr = inet_addr("10.18.207.213");	// Module IP
+	module_addr.sin_addr.s_addr = inet_addr(hostname.c_str());
 
 	/* SOCKET CREATION */
 	int	sockfd = -1;
@@ -306,7 +357,7 @@ int	tcpserv::local_forward(int __port, const std::string& __req)
 
 	std::cout << "forward server socket " << sockfd << std::endl;
 
-	this->add(sockfd);
+	this->add(sockfd, SERVICE);
 	return sockfd;
 }
 
@@ -392,6 +443,7 @@ void	tcpserv::launch(front_desk_agent __f, build __b)
 		{
 			/* Error cases */
 			if (_fds[idx].revents & (/* POLLHUP | POLLRDHUP | */ POLLERR | POLLNVAL)) {this->kill(idx); --idx; continue;}
+			else if (_reqs[idx].type != SERVICE && _fds[idx].revents & (POLLHUP | POLLRDHUP)) {this->kill(idx); --idx; continue;}
 			else if (_fds[idx].revents & POLLIN)
 			{
 				/* single recv() call stored in _requests[idx] */
@@ -402,11 +454,11 @@ void	tcpserv::launch(front_desk_agent __f, build __b)
 			else if (_fds[idx].revents & POLLOUT)
 			{
 				/* send the response */
-				if (_responses[idx].empty()) {continue;}
-				else if (send(_fds[idx].fd, _responses[idx].c_str(), _responses[idx].length(), 0) < 0) {_log.chop(oaklog::lvl::Error, "Send failure: ", std::strerror(errno), WHERE);}
-				_log.chop(oaklog::lvl::Info, "resonpose: ", _responses[idx], WHERE);
+				if (_reqs[idx].response.empty()) {continue;}
+				else if (send(_fds[idx].fd, _reqs[idx].response.c_str(), _reqs[idx].response.length(), 0) < 0) {_log.chop(oaklog::lvl::Error, "Send failure: ", std::strerror(errno), WHERE);}
+				_log.chop(oaklog::lvl::Info, "resonpose: ", _reqs[idx].response, WHERE);
 				/* clear the responses */
-				_responses[idx].clear();
+				_reqs[idx].response.clear();
 			}
 		}
 	}

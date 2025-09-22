@@ -37,7 +37,7 @@
         status.textContent = 'Sending audio...';
 
         try {
-          const response = await fetch('http://127.0.0.1:443', {
+          const response = await fetch('http://127.0.0.1:4002', {
             method: 'POST',
             headers: {
               'Content-Type': 'audio/wav',

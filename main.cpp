@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   main.cpp                                           :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: totommi <totommi@student.42.fr>            +#+  +:+       +#+        */
+/*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/18 13:34:42 by topiana-          #+#    #+#             */
-/*   Updated: 2025/09/22 03:33:31 by totommi          ###   ########.fr       */
+/*   Updated: 2025/09/22 18:28:51 by topiana-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -22,7 +22,7 @@ int	rebound(const std::pair<int, std::string>& req, std::string& res)
 	// if (req.second.rfind("\r\n\r\n") == req.second.length() - 4);
 		res = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 75\r\nConnection: Closed\r\n\r\n<html><h1>OMG SO COOOOLLL</h1><body>man pls stop loading...</body></html>\r\n\r\n";
 	// res = "HTTP/1.1 200 OK\r\nDate: Mon, 27 Jul 2009 12:28:53 GMT\r\nServer: Apache/2.2.14 (Win32)\r\nLast-Modified: Wed, 22 Jul 2009 19:15:56 GMT\r\nContent-Length: 88\r\nContent-Type: text/html\r\nConnection: Closed\r\n\r\n<html><head>OMG SO COOOOLLL<head><html>\r\n\r\n";
-	return 1;
+	return -1;
 }
 
 // #include <signal.h>
@@ -81,7 +81,18 @@ int	forward(const std::pair<int, std::string>& req, std::string& res)
 	std::cout << __func__ << " message from fd " << req.first << std::endl;
 
 	/* filter quit */
-	if (req.second == "QUIT\r\n") {return -1;}
+	if (req.second == "QUIT\r\n")
+	{
+		size_t idx = 0; while (idx < fwds.size() && fwds[idx] != req.first) ++idx;
+		if (idx != fwds.size())
+		{
+			fwds.erase(fwds.begin() + idx);
+			fwds_res.erase(fwds_res.begin() + idx);
+		}
+		std::vector<int>::iterator it = std::find(heads.begin(), heads.end(), req.first);
+		if (it != heads.end()) {heads.erase(it);}
+		return -1;
+	}
 
 	if (req.second.find("OPTIONS") != std::string::npos)
 	{
@@ -102,7 +113,7 @@ int	forward(const std::pair<int, std::string>& req, std::string& res)
 	if (std::find(heads.begin(), heads.end(), req.first) != heads.end())
 	// if (std::find(fwds.begin(), fwds.end(), req.first) == fwds.end())
 	{
-		int	fd = g_serv->local_forward(5000, req.second);
+		int	fd = g_serv->forward("localhost:5000", req.second);
 		if (fd < 0) {res = "Error\r\n"; return 0;}
 		else
 		{
@@ -130,34 +141,6 @@ int	forward(const std::pair<int, std::string>& req, std::string& res)
 
 #include <unistd.h> //close
 
-// int	manager(const std::pair<int, std::string>& req, std::string& res)
-// {
-// 	static std::vector<std::pair<int, std::string> > heads;
-
-// 	if (req.second.find("POST")) {heads.push_back(req); return 0;}
-
-// 	/* handle post of audios */
-// 	for (size_t i = 0; i < heads.size(); ++i)
-// 	{
-// 		if (req.first == heads[i].first)
-// 		{
-// 			forward(5000, req, res);
-// 			// std::stringstream file << "audio" << i
-// 			// int fd = open(file.str().c_str(), "O_WRONLY");
-// 			// if (fd < 0)
-// 			// {
-// 			// 	std::cerr << "Error: opening audio file" << std::endl;
-// 			// 	res = "Error\r\n";
-// 			// 	return 0;
-// 			// }
-// 			// write(fd, req.second.c_str(), req.second.length());
-// 			// close (fd);
-// 		}
-		
-
-// 	}
-// }
-
 int	main(int argc, char *argv[])
 {
 	tcpserv server;
@@ -167,7 +150,7 @@ int	main(int argc, char *argv[])
 	// if (argc != 3) {return 1;}
 	if (argc >= 2) {g_modules_list = argv[1];}
 
-	if (server.setup(443)) {return 1;}
+	if (server.setup(4002) < 0) {return 1;}
 	server.launch(&forward);
 	return 0;
 }
