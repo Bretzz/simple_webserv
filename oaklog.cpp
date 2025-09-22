@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   oaklog.cpp                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
+/*   By: totommi <totommi@student.42.fr>            +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/19 11:52:00 by topiana-          #+#    #+#             */
-/*   Updated: 2025/09/19 19:49:46 by topiana-         ###   ########.fr       */
+/*   Updated: 2025/09/22 01:09:23 by totommi          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -43,7 +43,7 @@ void	oaklog::chop(int __lvl, const std::string& __msg,
 				const char* __file, int __line, const char* __func)
 {
 	/* Min level check */
-	if (__lvl > _min_level) {return;}
+	if (__lvl < _min_level) {return;}
 
 	/* Max level cap */
 	if (__lvl > _max_level) {__lvl = _max_level;}

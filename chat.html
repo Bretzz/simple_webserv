@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Record and Send Audio</title>
+</head>
+<body>
+  <h1>🎙️ Record Audio & Send to C++ Server</h1>
+
+  <button id="recordBtn">Start Recording</button>
+  <button id="stopBtn" disabled>Stop & Send</button>
+
+  <p id="status">Status: Idle</p>
+  <audio id="playback" controls></audio>
+
+  <script>
+    const recordBtn = document.getElementById('recordBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const status = document.getElementById('status');
+    const playback = document.getElementById('playback');
+
+    let mediaRecorder;
+    let audioChunks = [];
+
+    recordBtn.onclick = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = e => {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: 'audio/wav' });
+        playback.src = URL.createObjectURL(blob);
+        status.textContent = 'Sending audio...';
+
+        try {
+          const response = await fetch('http://127.0.0.1:443', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'audio/wav',
+            },
+            body: blob,
+          });
+
+          const text = await response.text();
+          status.textContent = 'Server response: ' + text;
+        } catch (err) {
+          status.textContent = 'Failed to send: ' + err;
+        }
+      };
+
+      mediaRecorder.start();
+      status.textContent = 'Recording...';
+      recordBtn.disabled = true;
+      stopBtn.disabled = false;
+    };
+
+    stopBtn.onclick = () => {
+      mediaRecorder.stop();
+      status.textContent = 'Processing...';
+      recordBtn.disabled = false;
+      stopBtn.disabled = true;
+    };
+  </script>
+</body>
+</html>

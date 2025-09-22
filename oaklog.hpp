@@ -3,22 +3,22 @@
 /*                                                        :::      ::::::::   */
 /*   oaklog.hpp                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: topiana- <topiana-@student.42.fr>          +#+  +:+       +#+        */
+/*   By: totommi <totommi@student.42.fr>            +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/19 11:49:48 by topiana-          #+#    #+#             */
-/*   Updated: 2025/09/19 19:50:40 by topiana-         ###   ########.fr       */
+/*   Updated: 2025/09/21 18:04:40 by totommi          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#ifndef OAKLOH_HPP
-# define OAKLOH_HPP
+#ifndef OAKLOG_HPP
+# define OAKLOG_HPP
 
 # include <string>
 # include <fstream>
 
 # define DEFAULT_LOGFILE "oaklog.log"
 
-# define FLF __FILE__, __LINE__, __func__	/* File, Line, func where the FLF is written */
+# define WHERE __FILE__, __LINE__, __func__	/* File, Line, func where the macro is called is written */
 
 class oaklog
 {
